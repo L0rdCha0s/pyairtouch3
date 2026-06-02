@@ -1,5 +1,6 @@
 """Test the AirTouch 3 TCP client."""
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 from pyairtouch3.airtouch_aircon import Aircon
@@ -137,6 +138,27 @@ async def test_send_message_writes_and_closes_socket() -> None:
     writer.drain.assert_awaited_once()
     assert writer.closed is True
     writer.wait_closed.assert_awaited_once()
+
+
+async def test_send_message_waits_between_commands() -> None:
+    """Test sending commands is paced to avoid overloading the controller."""
+    reader = FakeStreamReader(b"")
+    writer = FakeStreamWriter()
+    client = AirTouchClient("1.1.1.1", command_interval=5)
+    client._last_command_at = asyncio.get_running_loop().time() - 2
+
+    with (
+        patch(
+            "pyairtouch3.client.asyncio.open_connection",
+            AsyncMock(return_value=(reader, writer)),
+        ),
+        patch("pyairtouch3.client.asyncio.sleep", AsyncMock()) as sleep,
+    ):
+        await client.send_message(bytearray(b"command"))
+
+    sleep.assert_awaited_once()
+    assert sleep.await_args.args[0] == pytest.approx(3, abs=0.01)
+    assert writer.written_data == bytearray(b"command")
 
 
 async def test_send_message_write_error_raises() -> None:

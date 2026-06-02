@@ -13,6 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_PORT = 8899
 RESPONSE_TIMEOUT = 10
+COMMAND_INTERVAL = 5
 MIN_RESPONSE_LENGTH = (
     MessageConstants.AIRTOUCH_ID_START + MessageConstants.AIRTOUCH_ID_LENGTH
 )
@@ -31,16 +32,26 @@ class AirTouchClient:
         port: int = DEFAULT_PORT,
         *,
         timeout: float = RESPONSE_TIMEOUT,
+        command_interval: float = COMMAND_INTERVAL,
         logger: logging.Logger | None = None,
     ) -> None:
         """Initialize the client."""
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.command_interval = command_interval
         self._logger = logger or _LOGGER
+        self._command_lock = asyncio.Lock()
+        self._socket_lock = asyncio.Lock()
+        self._last_command_at: float | None = None
 
     async def request_status(self) -> bytes:
         """Send the status request and return the raw response bytes."""
+        async with self._socket_lock:
+            return await self._request_status()
+
+    async def _request_status(self) -> bytes:
+        """Send the status request while the socket lock is held."""
         writer: asyncio.StreamWriter | None = None
         try:
             self._logger.debug(
@@ -80,6 +91,25 @@ class AirTouchClient:
 
     async def send_message(self, message: bytes | bytearray) -> None:
         """Send a raw AirTouch protocol message."""
+        async with self._command_lock:
+            loop = asyncio.get_running_loop()
+            if self._last_command_at is not None:
+                elapsed = loop.time() - self._last_command_at
+                if (delay := self.command_interval - elapsed) > 0:
+                    self._logger.debug(
+                        "Waiting %.2f seconds before sending AirTouch command",
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+
+            try:
+                async with self._socket_lock:
+                    await self._send_message(message)
+            finally:
+                self._last_command_at = loop.time()
+
+    async def _send_message(self, message: bytes | bytearray) -> None:
+        """Send a raw AirTouch protocol message while locks are held."""
         writer: asyncio.StreamWriter | None = None
         try:
             async with asyncio.timeout(self.timeout):
