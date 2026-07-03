@@ -55,6 +55,18 @@ def test_parse_assigns_touchpad_temperature_to_configured_zone() -> None:
     assert aircon.room_temperature == 22
 
 
+def test_parse_ac_id_and_brand_id_from_protocol_offsets() -> None:
+    """Test AC id and brand id are parsed from their AirTouch response offsets."""
+    response = _make_response(1)
+    response[425] = 0
+    response[439] = 11
+
+    aircon = MessageResponseParser(response, logging.getLogger(__name__)).parse()
+
+    assert aircon.ac_id == 0
+    assert aircon.brand_id == 11
+
+
 @pytest.mark.parametrize(
     ("raw_mode", "expected_mode"),
     [

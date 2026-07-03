@@ -44,7 +44,7 @@ class MessageResponseParser:
 
         self.log.debug("Length of response: %d", len(self.response_buffer))
 
-        ac_id = 0
+        ac_id = self.response_buffer[MessageConstants.AIRCON_ID]
         self.log.debug("AC id is: %d", ac_id)
 
         # Initialize Aircon with ac_id
